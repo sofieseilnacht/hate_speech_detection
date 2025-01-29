@@ -17,26 +17,27 @@ data = pd.read_csv(file_path)
 X = data["tweet"]  # Feature: the tweets 
 y = data["class"]  # Label: the classes (0: hate speech, 1: offensive language, 2: neither)
 
-train_X, test_X, train_y, test_y = train_test_split(X, y, test_size=0.3, random_state=42)
-
-# # Create training and testing DataFrames
-# train_df = pd.DataFrame({"text": train_X, "label": train_y})
-# test_df = pd.DataFrame({"text": test_X, "label": test_y})
-
-# # Convert to Hugging Face Dataset
-# train_ds = Dataset.from_pandas(train_df)
-# test_ds = Dataset.from_pandas(test_df)
-
+classes = ["hate speech", "offensive language", "neither"]
 
 model_name = "distilbert-base-uncased"
 model = TFDistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
 tokenizer = DistilBertTokenizer.from_pretrained(model_name)
-classes = ["hate speech", "offensive language", "neither"]
 
-# Tokenization function with padding & truncation
-def tokenize_function(examples):
-    return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=128)
+def classify_tweet(tweet):
+    # Tokenize input (directly return tensors)
+    inputs = tokenizer(tweet, truncation=True, padding="max_length", max_length=128, return_tensors="tf")
 
-# Apply tokenization to the datasets
-train_ds = train_ds.map(tokenize_function, batched=True)
-test_ds = test_ds.map(tokenize_function, batched=True)
+    # Get model predictions (logits)
+    logits = model(inputs)[0]
+
+    # Convert logits to probabilities using softmax
+    probs = tf.nn.softmax(logits, axis=1).numpy()[0]
+
+    # Get the predicted class
+    predicted_class = np.argmax(probs)
+
+    print(f"Tweet: {tweet}")
+    print(f"Predicted class: {classes[predicted_class]}")
+    
+    return predicted_class
+
