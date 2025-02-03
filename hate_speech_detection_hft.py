@@ -5,6 +5,7 @@ import evaluate
 import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 from torch.nn import CrossEntropyLoss
+from sklearn.metrics import classification_report
 
 
 # Load dataset directly using Hugging Face `datasets`
@@ -63,16 +64,40 @@ precision_metric = evaluate.load("precision")
 recall_metric = evaluate.load("recall")
 f1_metric = evaluate.load("f1")
 
-# Define function to compute all metrics
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)  # Convert logits to class predictions
     
+    # Compute per-class metrics
+    report = classification_report(labels, predictions, output_dict=True, zero_division=0)
+
     return {
         "accuracy": accuracy_metric.compute(predictions=predictions, references=labels)["accuracy"],
-        "precision": precision_metric.compute(predictions=predictions, references=labels, average="weighted")["precision"],
-        "recall": recall_metric.compute(predictions=predictions, references=labels, average="weighted")["recall"],
-        "f1": f1_metric.compute(predictions=predictions, references=labels, average="weighted")["f1"]}
+        "precision_weighted": precision_metric.compute(predictions=predictions, references=labels, average="weighted")["precision"],
+        "recall_weighted": recall_metric.compute(predictions=predictions, references=labels, average="weighted")["recall"],
+        "f1_weighted": f1_metric.compute(predictions=predictions, references=labels, average="weighted")["f1"],
+        # Per-class metrics
+        "precision_hate_speech": report["0"]["precision"],
+        "recall_hate_speech": report["0"]["recall"],
+        "f1_hate_speech": report["0"]["f1-score"],
+        "precision_offensive": report["1"]["precision"],
+        "recall_offensive": report["1"]["recall"],
+        "f1_offensive": report["1"]["f1-score"],
+        "precision_neutral": report["2"]["precision"],
+        "recall_neutral": report["2"]["recall"],
+        "f1_neutral": report["2"]["f1-score"],
+    }
+
+# # Define function to compute all metrics
+# def compute_metrics(eval_pred):
+#     logits, labels = eval_pred
+#     predictions = np.argmax(logits, axis=-1)  # Convert logits to class predictions
+    
+#     return {
+#         "accuracy": accuracy_metric.compute(predictions=predictions, references=labels)["accuracy"],
+#         "precision": precision_metric.compute(predictions=predictions, references=labels, average="weighted")["precision"],
+#         "recall": recall_metric.compute(predictions=predictions, references=labels, average="weighted")["recall"],
+#         "f1": f1_metric.compute(predictions=predictions, references=labels, average="weighted")["f1"]}
 
 # Load model
 model = DistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
@@ -92,7 +117,7 @@ training_args = TrainingArguments(
     evaluation_strategy="epoch",  # Evaluate at the end of every epoch
     save_strategy="epoch",
     load_best_model_at_end=True,  # Automatically load best model
-    learning_rate=5e-5,
+    learning_rate=3e-5,
     per_device_train_batch_size=8,
     per_device_eval_batch_size=8,
     num_train_epochs=7,
