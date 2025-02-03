@@ -48,7 +48,11 @@ labels = np.array(tokenized_datasets["train"]["label"])  # Extract training labe
 class_weights = compute_class_weight(class_weight="balanced", classes=np.unique(labels), y=labels)
 class_weights = torch.tensor(class_weights, dtype=torch.float)  # Convert to PyTorch tensor
 
-# print("Computed Class Weights:", class_weights)
+# Reduce the weight for Hate Speech (Class 0) slightly to prevent overcompensation
+class_weights[0] *= 0.75  # Reduce the weight by 25% (adjustable)
+
+# Normalize class weights to keep relative proportions
+class_weights /= class_weights.sum() * 3  # Ensures sum remains stable
 
 # Initialize Data Collator
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
@@ -74,7 +78,7 @@ def compute_metrics(eval_pred):
 model = DistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
 
 class WeightedTrainer(Trainer):
-    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):  # ✅ Accept extra arguments
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):  # Accept extra arguments
         labels = inputs.pop("labels")  # Extract labels
         outputs = model(**inputs)  # Get model predictions
         logits = outputs.logits
@@ -103,6 +107,7 @@ trainer = WeightedTrainer(
     train_dataset=tokenized_datasets["train"],
     eval_dataset=tokenized_datasets["val"],
     compute_metrics=compute_metrics,  
+    callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]  # Add Early Stopping
 )
 
 # Train and evaluate model
