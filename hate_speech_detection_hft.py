@@ -3,6 +3,8 @@ from transformers import DistilBertTokenizer, DataCollatorWithPadding, DistilBer
 import torch 
 import evaluate
 import numpy as np
+from sklearn.utils.class_weight import compute_class_weight
+from torch.nn import CrossEntropyLoss
 
 
 # Load dataset directly using Hugging Face `datasets`
@@ -41,79 +43,82 @@ tokenized_datasets = tokenized_datasets.remove_columns(["text"])
 # Convert dataset to PyTorch format
 tokenized_datasets.set_format("torch")
 
+# Compute Class Weights (AFTER tokenization)
+labels = np.array(tokenized_datasets["train"]["label"])  # Extract training labels
+class_weights = compute_class_weight(class_weight="balanced", classes=np.unique(labels), y=labels)
+class_weights = torch.tensor(class_weights, dtype=torch.float)  # Convert to PyTorch tensor
+
+# print("Computed Class Weights:", class_weights)
+
 # Initialize Data Collator
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
-# Count occurrences of each class in the training set
-train_labels = np.array(tokenized_datasets["train"]["label"])
-unique, counts = np.unique(train_labels, return_counts=True)
+# Load metrics
+accuracy_metric = evaluate.load("accuracy")
+precision_metric = evaluate.load("precision")
+recall_metric = evaluate.load("recall")
+f1_metric = evaluate.load("f1")
 
-# Print class distribution
-class_distribution = dict(zip(unique, counts))
-print("Training Class Counts:", class_distribution)
-
-test_labels = np.array(tokenized_datasets["test"]["label"])
-unique, counts = np.unique(test_labels, return_counts=True)
-print("Test Class Counts:", dict(zip(unique, counts)))
-
-
-# # Load model
-# model = DistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
-
-# # Load metrics
-# accuracy_metric = evaluate.load("accuracy")
-# precision_metric = evaluate.load("precision")
-# recall_metric = evaluate.load("recall")
-# f1_metric = evaluate.load("f1")
-
-# # Define function to compute all metrics
-# def compute_metrics(eval_pred):
-#     logits, labels = eval_pred
-#     predictions = np.argmax(logits, axis=-1)  # Convert logits to class predictions
+# Define function to compute all metrics
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions = np.argmax(logits, axis=-1)  # Convert logits to class predictions
     
-#     return {
-#         "accuracy": accuracy_metric.compute(predictions=predictions, references=labels)["accuracy"],
-#         "precision": precision_metric.compute(predictions=predictions, references=labels, average="weighted")["precision"],
-#         "recall": recall_metric.compute(predictions=predictions, references=labels, average="weighted")["recall"],
-#         "f1": f1_metric.compute(predictions=predictions, references=labels, average="weighted")["f1"]}
+    return {
+        "accuracy": accuracy_metric.compute(predictions=predictions, references=labels)["accuracy"],
+        "precision": precision_metric.compute(predictions=predictions, references=labels, average="weighted")["precision"],
+        "recall": recall_metric.compute(predictions=predictions, references=labels, average="weighted")["recall"],
+        "f1": f1_metric.compute(predictions=predictions, references=labels, average="weighted")["f1"]}
 
-# # Define training arguments
-# training_args = TrainingArguments(
-#     output_dir="./results",
-#     evaluation_strategy="epoch",  # Evaluate at the end of every epoch
-#     save_strategy="epoch",
-#     load_best_model_at_end=True,  # Automatically load best model
-#     learning_rate=5e-5,
-#     per_device_train_batch_size=8,
-#     per_device_eval_batch_size=8,
-#     num_train_epochs=7,
-#     weight_decay=0.01,
-#     logging_dir="./logs",
-# )
+# Load model
+model = DistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
 
-# # Initialize Trainer
-# trainer = Trainer(
-#     model=model,
-#     args=training_args,
-#     train_dataset=tokenized_datasets["train"],
-#     eval_dataset=tokenized_datasets["val"],
-#     compute_metrics=compute_metrics,  # ✅ Add this line
-# )
+class WeightedTrainer(Trainer):
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):  # ✅ Accept extra arguments
+        labels = inputs.pop("labels")  # Extract labels
+        outputs = model(**inputs)  # Get model predictions
+        logits = outputs.logits
+        loss_fn = CrossEntropyLoss(weight=class_weights.to(logits.device))  # Apply class weights
+        loss = loss_fn(logits, labels)
+        return (loss, outputs) if return_outputs else loss
 
-# # Train and evaluate model
-# trainer.train()
+# Define training arguments
+training_args = TrainingArguments(
+    output_dir="./results",
+    evaluation_strategy="epoch",  # Evaluate at the end of every epoch
+    save_strategy="epoch",
+    load_best_model_at_end=True,  # Automatically load best model
+    learning_rate=5e-5,
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
+    num_train_epochs=7,
+    weight_decay=0.01,
+    logging_dir="./logs",
+)
 
-# # Get predictions
-# predictions = trainer.predict(tokenized_datasets["test"]).predictions
-# predictions = np.argmax(predictions, axis=-1)  # Convert logits to class predictions
+# Initialize Trainer
+trainer = WeightedTrainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_datasets["train"],
+    eval_dataset=tokenized_datasets["val"],
+    compute_metrics=compute_metrics,  
+)
 
-# # Count occurrences of each class in predictions
-# unique, counts = np.unique(predictions, return_counts=True)
-# print("Predicted Class Counts:", dict(zip(unique, counts)))
+# Train and evaluate model
+trainer.train()
 
-# # Count occurrences of each class in test labels
-# test_labels = tokenized_datasets["test"]["label"]
-# unique, counts = np.unique(test_labels.numpy(), return_counts=True)
-# print("Actual Class Counts:", dict(zip(unique, counts)))
+# Get predictions
+predictions = trainer.predict(tokenized_datasets["test"]).predictions
+predictions = np.argmax(predictions, axis=-1)  # Convert logits to class predictions
 
-# trainer.evaluate()
+# Count occurrences of each class in predictions
+unique, counts = np.unique(predictions, return_counts=True)
+print("Predicted Class Counts:", dict(zip(unique, counts)))
+
+# Count occurrences of each class in test labels
+test_labels = tokenized_datasets["test"]["label"]
+unique, counts = np.unique(test_labels.numpy(), return_counts=True)
+print("Actual Class Counts:", dict(zip(unique, counts)))
+
+trainer.evaluate()
