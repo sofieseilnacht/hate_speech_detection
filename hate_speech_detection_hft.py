@@ -6,7 +6,7 @@ import numpy as np
 
 
 # Load dataset directly using Hugging Face `datasets`
-dataset = load_dataset("csv", data_files="/Users/sofie/.cache/kagglehub/datasets/mrmorj/hate-speech-and-offensive-language-dataset/versions/1/labeled_data_copy.csv")
+dataset = load_dataset("csv", data_files="/Users/sofie/.cache/kagglehub/datasets/mrmorj/hate-speech-and-offensive-language-dataset/versions/1/labeled_data.csv")
 
 # Keep only 'text' and 'labels' columns
 dataset = dataset.remove_columns(["Unnamed: 0", "count", "hate_speech", "offensive_language", "neither"])
@@ -64,41 +64,42 @@ def compute_metrics(eval_pred):
         "recall": recall_metric.compute(predictions=predictions, references=labels, average="weighted")["recall"],
         "f1": f1_metric.compute(predictions=predictions, references=labels, average="weighted")["f1"]}
 
+# Define training arguments
+training_args = TrainingArguments(
+    output_dir="./results",
+    evaluation_strategy="epoch",  # Evaluate at the end of every epoch
+    save_strategy="epoch",
+    learning_rate=5e-5,
+    per_device_train_batch_size=8,
+    per_device_eval_batch_size=8,
+    num_train_epochs=3,
+    weight_decay=0.01,
+    logging_dir="./logs",
+)
 
-# # Extract train, validation, and test datasets
-# train_dataset = dataset["train"]
-# val_dataset = dataset["test"]["train"]
-# test_dataset = dataset["test"]["test"]
+# Initialize Trainer
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=tokenized_datasets["train"],
+    eval_dataset=tokenized_datasets["val"],
+    compute_metrics=compute_metrics,  # ✅ Add this line
+)
 
-# # Load model
-# model = DistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
+# Train and evaluate model
+trainer.train()
 
-# # Define training arguments
-# training_args = TrainingArguments(
-#     output_dir="./results",
-#     evaluation_strategy="epoch",
-#     save_strategy="epoch",
-#     learning_rate=5e-5,
-#     per_device_train_batch_size=8,
-#     per_device_eval_batch_size=8,
-#     num_train_epochs=3,
-#     weight_decay=0.01,
-#     logging_dir="./logs",
-# )
+# Get predictions
+predictions = trainer.predict(tokenized_datasets["test"]).predictions
+predictions = np.argmax(predictions, axis=-1)  # Convert logits to class predictions
 
-# # Initialize Trainer
-# trainer = Trainer(
-#     model=model,
-#     args=training_args,
-#     train_dataset=train_dataset,
-#     eval_dataset=val_dataset,
-# )
+# Count occurrences of each class in predictions
+unique, counts = np.unique(predictions, return_counts=True)
+print("Predicted Class Counts:", dict(zip(unique, counts)))
 
-# # Train the model
-# trainer.train()
+# Count occurrences of each class in test labels
+test_labels = tokenized_datasets["test"]["label"]
+unique, counts = np.unique(test_labels.numpy(), return_counts=True)
+print("Actual Class Counts:", dict(zip(unique, counts)))
 
-# # Save the fine-tuned model
-# model.save_pretrained("hate_speech_pytorch")
-# tokenizer.save_pretrained("hate_speech_pytorch")
-
-# print("✅ Model fine-tuned and saved successfully!")
+trainer.evaluate()
