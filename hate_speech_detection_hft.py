@@ -1,12 +1,7 @@
 from datasets import load_dataset
-from transformers import DistilBertTokenizer, DistilBertForSequenceClassification, Trainer, TrainingArguments
-import torch
-import pandas as pd
+from transformers import DistilBertTokenizer, DataCollatorWithPadding, DistilBertForSequenceClassification, Trainer, TrainingArguments
+import torch 
 
-csv_path = "/Users/sofie/.cache/kagglehub/datasets/mrmorj/hate-speech-and-offensive-language-dataset/versions/1/labeled_data_copy.csv"
-df = pd.read_csv(csv_path)
-
-print(f"Original CSV Row Count: {df.shape[0]}")  
 
 # Load dataset directly using Hugging Face `datasets`
 dataset = load_dataset("csv", data_files="/Users/sofie/.cache/kagglehub/datasets/mrmorj/hate-speech-and-offensive-language-dataset/versions/1/labeled_data_copy.csv")
@@ -15,25 +10,39 @@ dataset = load_dataset("csv", data_files="/Users/sofie/.cache/kagglehub/datasets
 dataset = dataset.remove_columns(["Unnamed: 0", "count", "hate_speech", "offensive_language", "neither"])
 
 # Rename columns to match what Hugging Face expects
-dataset = dataset["train"].rename_column("tweet", "text").rename_column("class", "labels")
-print(f"Processed Dataset Row Count: {dataset.num_rows}")  
+dataset = dataset["train"].rename_column("tweet", "text").rename_column("class", "label")
 
+# First, split into 80% train and 20% temp (which will be further split into val + test)
+dataset = dataset.train_test_split(test_size=0.2, seed=42)
 
-# # Split into train, validation, and test sets (automatically handled)
-# dataset = dataset.train_test_split(test_size=0.3, seed=42)
-# dataset = dataset.rename_column("labels", "label")  # Hugging Face expects "label" instead of "labels"
+# Now, split temp into 50% validation and 50% test (10% each of full dataset)
+temp = dataset["test"].train_test_split(test_size=0.5, seed=42)
 
-# # Further split test set into validation (50%) and test (50%)
-# dataset["test"] = dataset["test"].train_test_split(test_size=0.5, seed=42)
+# Assign new splits correctly
+dataset["val"] = temp["train"]  # 10% Validation Set
+dataset["test"] = temp["test"]  # 10% Test Set
 
-# # Load tokenizer
-# model_name = "distilbert-base-uncased"
-# tokenizer = DistilBertTokenizer.from_pretrained(model_name)
+# Load tokenizer
+model_name = "distilbert-base-uncased"
+tokenizer = DistilBertTokenizer.from_pretrained(model_name)
 
-# # Tokenize the dataset
-# def tokenize_function(examples):
-#     return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=128)
+# Tokenize the dataset
+def tokenize_function(examples):
+    return tokenizer(examples["text"], truncation=True, padding="max_length", max_length=128)
 
+# Tokenize the dataset
+tokenized_datasets = dataset.map(tokenize_function, batched=True)
+
+# Remove the original "text" column (model doesn't need it since we're using encoded data now rather than raw text)
+tokenized_datasets = tokenized_datasets.remove_columns(["text"])
+
+# Convert dataset to PyTorch format
+tokenized_datasets.set_format("torch")
+
+# Initialize Data Collator
+data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+
+print(tokenized_datasets)
 # # Apply tokenization
 # dataset = dataset.map(tokenize_function, batched=True)
 
