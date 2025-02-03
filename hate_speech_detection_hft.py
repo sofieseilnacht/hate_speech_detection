@@ -9,53 +9,69 @@ import sklearn
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 from datasets import Dataset
+import keras
+from tensorflow.keras.optimizers import Adam  # No legacy needed
 
+# Load dataset
 file_path = "/Users/sofie/.cache/kagglehub/datasets/mrmorj/hate-speech-and-offensive-language-dataset/versions/1/labeled_data.csv"
-
-# Import data from csv file using path
 data = pd.read_csv(file_path)
 
-# Assign features (X) and labels (y)
-X = data["tweet"]  # Feature: the tweets 
-y = data["class"]  # Label: the classes (0: hate speech, 1: offensive language, 2: neither)
+# Assign features & labels
+X = data["tweet"][:100]
+y = data["class"][:100]
 
-# Cut the dataset a bit so we can fine tune properly
-small_data = pd.DataFrame({"tweet": X, "class": y})
+# Split into train & validation sets
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
-classes = ["hate speech", "offensive language", "neither"]
-
+# Load tokenizer
 model_name = "distilbert-base-uncased"
-model = TFDistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
 tokenizer = DistilBertTokenizer.from_pretrained(model_name)
 
-def classify_tweet(tweet):
-    # Tokenize input (directly return tensors)
-    inputs = tokenizer(tweet, truncation=True, padding="max_length", max_length=128, return_tensors="tf")
+# Tokenize training & validation sets
+train_encodings = tokenizer(list(X_train), truncation=True, padding=True, max_length=128, return_tensors="tf")
+val_encodings = tokenizer(list(X_val), truncation=True, padding=True, max_length=128, return_tensors="tf")
 
-    # Get model predictions (logits)
-    logits = model(inputs)[0]
+# Convert labels to TensorFlow tensors
+y_train = tf.convert_to_tensor(y_train.values)
+y_val = tf.convert_to_tensor(y_val.values)
 
-    # Convert logits to probabilities using softmax
-    probs = tf.nn.softmax(logits, axis=1).numpy()[0]
+# Create TensorFlow datasets (batch processing)
+batch_size = 8  # Adjust based on available GPU/CPU memory
+train_dataset = tf.data.Dataset.from_tensor_slices((dict(train_encodings), y_train)).shuffle(len(X_train)).batch(batch_size)
+val_dataset = tf.data.Dataset.from_tensor_slices((dict(val_encodings), y_val)).batch(batch_size)
 
-    # Get the predicted class
-    predicted_class = np.argmax(probs)
+# Load pre-trained DistilBERT model
+model = TFDistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
 
-    print(f"Tweet: {tweet}")
-    print(f"Predicted class: {classes[predicted_class]}")
-    
-    return predicted_class
+# Fix Variable Initialization Issue
+dummy_input = tf.zeros((1, 128), dtype=tf.int32)  # Force initialization
+model(dummy_input)
 
-# # Apply classification only on the reduced dataset
-# small_data["predicted_class"] = small_data["tweet"].apply(classify_tweet)
+# Define additional evaluation metrics
+METRICS = [
+    keras.metrics.TruePositives(name='tp'), 
+    keras.metrics.FalsePositives(name='fp'), 
+    keras.metrics.TrueNegatives(name='tn'), 
+    keras.metrics.FalseNegatives(name='fn'),  
+    keras.metrics.Precision(name='precision'), 
+    keras.metrics.Recall(name='recall'), 
+    keras.metrics.CategoricalAccuracy(name='acc'),
+    keras.metrics.AUC(name='auc'),
+]
 
-# # Print results
-# print(small_data[["tweet", "class", "predicted_class"]].head(10))
+# Compile model using the legacy Adam optimizer
+model.compile(
+    optimizer=Adam(learning_rate=5e-5), 
+    loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+    metrics=METRICS
+)
 
-# # Compute accuracy only on the reduced dataset
-# accuracy = accuracy_score(small_data["class"], small_data["predicted_class"])
-# print(f"Model Accuracy: {accuracy * 100:.2f}%")
+# Fine-tune the model 🚀
+epochs = 3  # Increase if needed for better performance
+model.fit(train_dataset, validation_data=val_dataset, epochs=epochs)
 
-# # Show misclassified examples
-# misclassified = small_data[small_data["class"] != small_data["predicted_class"]]
-# print(misclassified[["tweet", "class", "predicted_class"]].head(10))
+# Save the trained model
+model.save_pretrained("hate_speech_model")
+tokenizer.save_pretrained("hate_speech_model")
+
+print("✅ Model fine-tuned and saved successfully!")
