@@ -1,13 +1,23 @@
 from datasets import load_dataset
 from transformers import DistilBertTokenizer, DistilBertForSequenceClassification, Trainer, TrainingArguments
 import torch
+import pandas as pd
+
+csv_path = "/Users/sofie/.cache/kagglehub/datasets/mrmorj/hate-speech-and-offensive-language-dataset/versions/1/labeled_data_copy.csv"
+df = pd.read_csv(csv_path)
+
+print(f"Original CSV Row Count: {df.shape[0]}")  
 
 # Load dataset directly using Hugging Face `datasets`
 dataset = load_dataset("csv", data_files="/Users/sofie/.cache/kagglehub/datasets/mrmorj/hate-speech-and-offensive-language-dataset/versions/1/labeled_data_copy.csv")
 
-print(dataset)
+# Keep only 'text' and 'labels' columns
+dataset = dataset.remove_columns(["Unnamed: 0", "count", "hate_speech", "offensive_language", "neither"])
+
 # Rename columns to match what Hugging Face expects
-# dataset = dataset["train"].rename_column("tweet", "text").rename_column("class", "labels")
+dataset = dataset["train"].rename_column("tweet", "text").rename_column("class", "labels")
+print(f"Processed Dataset Row Count: {dataset.num_rows}")  
+
 
 # # Split into train, validation, and test sets (automatically handled)
 # dataset = dataset.train_test_split(test_size=0.3, seed=42)
