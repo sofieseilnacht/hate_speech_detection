@@ -1,6 +1,8 @@
 from datasets import load_dataset
 from transformers import DistilBertTokenizer, DataCollatorWithPadding, DistilBertForSequenceClassification, Trainer, TrainingArguments
 import torch 
+import evaluate
+import numpy as np
 
 
 # Load dataset directly using Hugging Face `datasets`
@@ -42,15 +44,26 @@ tokenized_datasets.set_format("torch")
 # Initialize Data Collator
 data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
-print(tokenized_datasets)
-# # Apply tokenization
-# dataset = dataset.map(tokenize_function, batched=True)
+# Load model
+model = DistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
 
-# # Remove unnecessary columns
-# dataset = dataset.remove_columns(["text"])  # Keep only tokenized features and labels
+# Load metrics
+accuracy_metric = evaluate.load("accuracy")
+precision_metric = evaluate.load("precision")
+recall_metric = evaluate.load("recall")
+f1_metric = evaluate.load("f1")
 
-# # Convert dataset to PyTorch format
-# dataset.set_format("torch")
+# Define function to compute all metrics
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions = np.argmax(logits, axis=-1)  # Convert logits to class predictions
+    
+    return {
+        "accuracy": accuracy_metric.compute(predictions=predictions, references=labels)["accuracy"],
+        "precision": precision_metric.compute(predictions=predictions, references=labels, average="weighted")["precision"],
+        "recall": recall_metric.compute(predictions=predictions, references=labels, average="weighted")["recall"],
+        "f1": f1_metric.compute(predictions=predictions, references=labels, average="weighted")["f1"]}
+
 
 # # Extract train, validation, and test datasets
 # train_dataset = dataset["train"]
