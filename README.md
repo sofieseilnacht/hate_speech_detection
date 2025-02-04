@@ -74,10 +74,7 @@ Using the Hugging Face Transformers (HFT) datasets library, we performed the fol
 - Split the dataset into training (80%), validation (10%), and test (10%) sets.
 - Tokenized and padded text sequences, ensuring compatibility with the model input format. Any text exceeding the model's maximum token length was truncated.
 
-To address class imbalance, we:
-
-- Reweighted the class distribution using the PyTorch library and cross-entropy loss function, assigning higher weights to the minority class (label 0) to balance representation.
-- Replaced DistilBERT’s default loss function with this reweighted loss to improve model performance on underrepresented classes.
+To address class imbalance, we reweighted the class distribution using the PyTorch library and cross-entropy loss function, assigning higher weights to the minority class (label 0) to balance representation. We also replaced DistilBERT’s default loss function with this reweighted loss to improve model performance on underrepresented classes.
 
 ## Model Training & Optimization:
 
