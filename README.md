@@ -47,6 +47,7 @@ The dataset, "Hate Speech and Offensive Language Data", was sourced from Kaggle 
 - 2 – Neutral Speech
 
 The raw data includes seven columns:
+
 – tweet index
 - count – Number of CrowdFlower annotators who labeled each tweet
 - hate speech – Number of annotators who marked the tweet as hate speech
