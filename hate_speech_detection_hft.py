@@ -49,8 +49,8 @@ labels = np.array(tokenized_datasets["train"]["label"])  # Extract training labe
 class_weights = compute_class_weight(class_weight="balanced", classes=np.unique(labels), y=labels)
 class_weights = torch.tensor(class_weights, dtype=torch.float)  # Convert to PyTorch tensor
 
-# Reduce the weight for Hate Speech (Class 0) slightly to prevent overcompensation
-class_weights[0] *= 0.75  # Reduce the weight by 25% (adjustable)
+# Adjust (increase) hate speech weight (Class 0)
+class_weights[0] *= 2  # Reduce the weight by 25% (adjustable)
 
 # Normalize class weights to keep relative proportions
 class_weights /= class_weights.sum() * 3  # Ensures sum remains stable
@@ -87,17 +87,6 @@ def compute_metrics(eval_pred):
         "recall_neutral": report["2"]["recall"],
         "f1_neutral": report["2"]["f1-score"],
     }
-
-# # Define function to compute all metrics
-# def compute_metrics(eval_pred):
-#     logits, labels = eval_pred
-#     predictions = np.argmax(logits, axis=-1)  # Convert logits to class predictions
-    
-#     return {
-#         "accuracy": accuracy_metric.compute(predictions=predictions, references=labels)["accuracy"],
-#         "precision": precision_metric.compute(predictions=predictions, references=labels, average="weighted")["precision"],
-#         "recall": recall_metric.compute(predictions=predictions, references=labels, average="weighted")["recall"],
-#         "f1": f1_metric.compute(predictions=predictions, references=labels, average="weighted")["f1"]}
 
 # Load model
 model = DistilBertForSequenceClassification.from_pretrained(model_name, num_labels=3)
